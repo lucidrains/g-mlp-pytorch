@@ -17,17 +17,35 @@ class Residual(nn.Module):
     def forward(self, x):
         return self.fn(x) + x
 
+class Attention(nn.Module):
+    def __init__(self, dim_in, dim_out, dim_inner):
+        super().__init__()
+        self.scale = dim_inner ** -0.5
+        self.to_qkv = nn.Linear(dim_in, dim_inner * 3, bias = False)
+        self.to_out = nn.Linear(dim_inner, dim_out)
+
+    def forward(self, x):
+        q, k, v = self.to_qkv(x).chunk(3, dim = -1)
+        sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
+        attn = sim.softmax(dim = -1)
+        out = einsum('b i j, b j d -> b i d', attn, v)
+        return self.to_out(out)
+
 class SpatialGatingUnit(nn.Module):
-    def __init__(self, dim, dim_seq):
+    def __init__(self, dim, dim_seq, attn_dim = None):
         super().__init__()
         self.norm = nn.LayerNorm(dim)
         self.proj = nn.Conv1d(dim_seq, dim_seq, 1)
+        self.attn = Attention(dim * 2, dim, attn_dim) if exists(attn_dim) else None
         nn.init.constant_(self.proj.bias, 1.)
 
     def forward(self, x):
-        x, gate = x.chunk(2, dim = -1)
+        res, gate = x.chunk(2, dim = -1)
         gate = self.norm(gate)
-        return self.proj(gate) * x
+        gate = self.proj(gate)
+        if exists(self.attn):
+            gate += self.attn(x)
+        return gate * res
 
 # main classes
 
@@ -37,7 +55,8 @@ def gMLP(
     dim,
     depth,
     seq_len,
-    ff_mult = 4
+    ff_mult = 4,
+    attn_dim = None
 ):
     dim_ff = dim * ff_mult
 
@@ -47,7 +66,7 @@ def gMLP(
             nn.LayerNorm(dim),
             nn.Linear(dim, dim_ff * 2),
             nn.GELU(),
-            SpatialGatingUnit(dim_ff, seq_len),
+            SpatialGatingUnit(dim_ff, seq_len, attn_dim),
             nn.Linear(dim_ff, dim)
         )) for i in range(depth)]
     )
@@ -60,7 +79,8 @@ def gMLPVision(
     dim,
     depth,
     ff_mult = 4,
-    channels = 3
+    channels = 3,
+    attn_dim = None
 ):
     dim_ff = dim * ff_mult
     num_patches = (image_size // patch_size) ** 2
@@ -72,7 +92,7 @@ def gMLPVision(
             nn.LayerNorm(dim),
             nn.Linear(dim, dim_ff * 2),
             nn.GELU(),
-            SpatialGatingUnit(dim_ff, num_patches),
+            SpatialGatingUnit(dim_ff, num_patches, attn_dim),
             nn.Linear(dim_ff, dim)
         )) for i in range(depth)],
         nn.LayerNorm(dim),

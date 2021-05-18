@@ -47,6 +47,25 @@ img = torch.randn(1, 3, 256, 256)
 pred = model(img) # (1, 1000)
 ```
 
+You can also add a tiny amount of attention (one-headed) to boost performance, as mentioned in the paper as `aMLP`, with the addition of one extra keyword `attn_dim`. This applies to both `gMLPVision` and `gMLP`
+
+```python
+import torch
+from g_mlp_pytorch import gMLPVision
+
+model = gMLPVision(
+    image_size = 256,
+    patch_size = 16,
+    num_classes = 1000,
+    dim = 512,
+    depth = 6,
+    attn_dim = 64
+)
+
+img = torch.randn(1, 3, 256, 256)
+pred = model(img) # (1, 1000)
+```
+
 ## Citations
 
 ```bibtex
