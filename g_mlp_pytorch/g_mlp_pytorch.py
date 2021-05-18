@@ -10,12 +10,21 @@ def exists(val):
 # helper classes
 
 class Residual(nn.Module):
-    def __init__(self, fn):
+    def __init__(self, fn, p_survival=None):
         super().__init__()
         self.fn = fn
+        self.p_survival = torch.tensor(p_survival, dtype=torch.float32) if exists(p_survival) else None
 
     def forward(self, x):
-        return self.fn(x) + x
+        if self.training and exists(self.p_survival):
+            if torch.bernoulli(self.p_survival).all():
+                out = self.fn(x) + x
+            else:
+                out = x
+        else:
+            out = self.fn(x) + x
+
+        return out
 
 class Attention(nn.Module):
     def __init__(self, dim_in, dim_out, dim_inner):
@@ -57,19 +66,23 @@ def gMLP(
     depth,
     seq_len,
     ff_mult = 4,
-    attn_dim = None
+    attn_dim = None,
+    p_survival = None,
 ):
     dim_ff = dim * ff_mult
 
     return nn.Sequential(
         nn.Embedding(num_tokens, dim) if exists(num_tokens) else nn.Identity(),
-        *[Residual(nn.Sequential(
-            nn.LayerNorm(dim),
-            nn.Linear(dim, dim_ff * 2),
-            nn.GELU(),
-            SpatialGatingUnit(dim_ff, seq_len, attn_dim),
-            nn.Linear(dim_ff, dim)
-        )) for i in range(depth)]
+        *[Residual(
+            nn.Sequential(
+                nn.LayerNorm(dim),
+                nn.Linear(dim, dim_ff * 2),
+                nn.GELU(),
+                SpatialGatingUnit(dim_ff, seq_len, attn_dim),
+                nn.Linear(dim_ff, dim)
+            ),
+            p_survival=p_survival
+        ) for i in range(depth)]
     )
 
 def gMLPVision(
@@ -81,7 +94,8 @@ def gMLPVision(
     depth,
     ff_mult = 4,
     channels = 3,
-    attn_dim = None
+    attn_dim = None,
+    p_survival = None,
 ):
     dim_ff = dim * ff_mult
     num_patches = (image_size // patch_size) ** 2
@@ -89,13 +103,16 @@ def gMLPVision(
     return nn.Sequential(
         Rearrange('b c (h p1) (w p2) -> b (h w) (c p1 p2)', p1 = patch_size, p2 = patch_size),
         nn.Linear(channels * patch_size ** 2, dim),
-        *[Residual(nn.Sequential(
-            nn.LayerNorm(dim),
-            nn.Linear(dim, dim_ff * 2),
-            nn.GELU(),
-            SpatialGatingUnit(dim_ff, num_patches, attn_dim),
-            nn.Linear(dim_ff, dim)
-        )) for i in range(depth)],
+        *[Residual(
+            nn.Sequential(
+                nn.LayerNorm(dim),
+                nn.Linear(dim, dim_ff * 2),
+                nn.GELU(),
+                SpatialGatingUnit(dim_ff, num_patches, attn_dim),
+                nn.Linear(dim_ff, dim)
+            ),
+            p_survival=p_survival
+        ) for i in range(depth)],
         nn.LayerNorm(dim),
         Reduce('b n d -> b d', 'mean'),
         nn.Linear(dim, num_classes)
