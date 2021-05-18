@@ -22,6 +22,7 @@ class SpatialGatingUnit(nn.Module):
         super().__init__()
         self.norm = nn.LayerNorm(dim)
         self.proj = nn.Conv1d(dim_seq, dim_seq, 1)
+        nn.init.constant_(self.proj.bias, 1.)
 
     def forward(self, x):
         x, gate = x.chunk(2, dim = -1)
