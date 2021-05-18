@@ -26,7 +26,7 @@ model = gMLP(
 )
 
 x = torch.randint(0, 20000, (1, 256))
-pred = model(x) # (1, 256, 512)
+emb = model(x) # (1, 256, 512)
 ```
 
 For image classification
