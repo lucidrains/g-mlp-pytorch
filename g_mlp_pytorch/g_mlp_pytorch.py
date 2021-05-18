@@ -37,6 +37,7 @@ class SpatialGatingUnit(nn.Module):
         self.norm = nn.LayerNorm(dim)
         self.proj = nn.Conv1d(dim_seq, dim_seq, 1)
         self.attn = Attention(dim * 2, dim, attn_dim) if exists(attn_dim) else None
+        nn.init.zeros_(self.proj.weight)
         nn.init.constant_(self.proj.bias, 1.)
 
     def forward(self, x):
