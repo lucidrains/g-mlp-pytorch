@@ -44,8 +44,14 @@ class Attention(nn.Module):
         self.to_out = nn.Linear(dim_inner, dim_out)
 
     def forward(self, x):
+        device = x.device
         q, k, v = self.to_qkv(x).chunk(3, dim = -1)
         sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
+
+        if self.causal:
+            mask = torch.ones(sim.shape[-2:], device = device).triu(1).bool()
+            sim.masked_fill_(mask[None, ...], -torch.finfo(q.dtype).max)
+
         attn = sim.softmax(dim = -1)
         out = einsum('b i j, b j d -> b i d', attn, v)
         return self.to_out(out)
