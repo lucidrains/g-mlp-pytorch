@@ -7,6 +7,21 @@ from einops.layers.torch import Rearrange, Reduce
 def exists(val):
     return val is not None
 
+def dropout_layers(layers, prob_survival):
+    if prob_survival == 1:
+        return layers
+
+    num_layers = len(layers)
+    to_drop = torch.zeros(num_layers).uniform_(0., 1.) > prob_survival
+
+    # make sure at least one layer makes it
+    if all(to_drop):
+        rand_index = randrange(num_layers)
+        to_drop[rand_index] = False
+
+    layers = [layer for (layer, drop) in zip(layers, to_drop) if not drop]
+    return layers
+
 # helper classes
 
 class Residual(nn.Module):
@@ -50,53 +65,81 @@ class SpatialGatingUnit(nn.Module):
 
 # main classes
 
-def gMLP(
-    *,
-    num_tokens = None,
-    dim,
-    depth,
-    seq_len,
-    ff_mult = 4,
-    attn_dim = None
-):
-    dim_ff = dim * ff_mult
+class gMLP(nn.Module):
+    def __init__(
+        self,
+        *,
+        num_tokens = None,
+        dim,
+        depth,
+        seq_len,
+        ff_mult = 4,
+        attn_dim = None,
+        prob_survival = 1.
+    ):
+        super().__init__()
+        dim_ff = dim * ff_mult
+        self.to_embed = nn.Embedding(num_tokens, dim) if exists(num_tokens) else nn.Identity()
 
-    return nn.Sequential(
-        nn.Embedding(num_tokens, dim) if exists(num_tokens) else nn.Identity(),
-        *[Residual(nn.Sequential(
+        self.prob_survival = prob_survival
+
+        self.layers = nn.ModuleList([Residual(nn.Sequential(
             nn.LayerNorm(dim),
             nn.Linear(dim, dim_ff * 2),
             nn.GELU(),
             SpatialGatingUnit(dim_ff, seq_len, attn_dim),
             nn.Linear(dim_ff, dim)
-        )) for i in range(depth)]
-    )
+        )) for i in range(depth)])
 
-def gMLPVision(
-    *,
-    image_size,
-    patch_size,
-    num_classes,
-    dim,
-    depth,
-    ff_mult = 4,
-    channels = 3,
-    attn_dim = None
-):
-    dim_ff = dim * ff_mult
-    num_patches = (image_size // patch_size) ** 2
+    def forward(self, x):
+        x = self.to_embed(x)
+        layers = self.layers if not self.training else dropout_layers(self.layers, self.prob_survival)
+        print(len(layers))
+        out = nn.Sequential(*layers)(x)
+        return out
 
-    return nn.Sequential(
-        Rearrange('b c (h p1) (w p2) -> b (h w) (c p1 p2)', p1 = patch_size, p2 = patch_size),
-        nn.Linear(channels * patch_size ** 2, dim),
-        *[Residual(nn.Sequential(
+class gMLPVision(nn.Module):
+    def __init__(
+        self,
+        *,
+        image_size,
+        patch_size,
+        num_classes,
+        dim,
+        depth,
+        ff_mult = 4,
+        channels = 3,
+        attn_dim = None,
+        prob_survival = 1.
+    ):
+        super().__init__()
+        assert (image_size % patch_size) == 0, 'image size must be divisible by the patch size'
+        dim_ff = dim * ff_mult
+        num_patches = (image_size // patch_size) ** 2
+
+        self.to_patch_embed = nn.Sequential(
+            Rearrange('b c (h p1) (w p2) -> b (h w) (c p1 p2)', p1 = patch_size, p2 = patch_size),
+            nn.Linear(channels * patch_size ** 2, dim)
+        )
+
+        self.prob_survival = prob_survival
+
+        self.layers = nn.ModuleList([Residual(nn.Sequential(
             nn.LayerNorm(dim),
             nn.Linear(dim, dim_ff * 2),
             nn.GELU(),
             SpatialGatingUnit(dim_ff, num_patches, attn_dim),
             nn.Linear(dim_ff, dim)
-        )) for i in range(depth)],
-        nn.LayerNorm(dim),
-        Reduce('b n d -> b d', 'mean'),
-        nn.Linear(dim, num_classes)
-    )
+        )) for i in range(depth)])
+
+        self.to_logits = nn.Sequential(
+            nn.LayerNorm(dim),
+            Reduce('b n d -> b d', 'mean'),
+            nn.Linear(dim, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.to_patch_embed(x)
+        layers = self.layers if not self.training else dropout_layers(self.layers, self.prob_survival)
+        x = nn.Sequential(*layers)(x)
+        return self.to_logits(x)
