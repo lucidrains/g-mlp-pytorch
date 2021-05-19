@@ -67,7 +67,7 @@ def gMLP(
     seq_len,
     ff_mult = 4,
     attn_dim = None,
-    p_survival = None,
+    p_survival = None
 ):
     dim_ff = dim * ff_mult
 
@@ -95,7 +95,7 @@ def gMLPVision(
     ff_mult = 4,
     channels = 3,
     attn_dim = None,
-    p_survival = None,
+    p_survival = None
 ):
     dim_ff = dim * ff_mult
     num_patches = (image_size // patch_size) ** 2
