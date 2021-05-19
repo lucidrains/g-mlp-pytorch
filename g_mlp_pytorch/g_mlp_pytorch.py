@@ -69,13 +69,14 @@ class SpatialGatingUnit(nn.Module):
         nn.init.constant_(self.proj.bias, 1.)
 
     def forward(self, x):
-        device = x.device
+        device, n = x.device, x.shape[1]
 
         res, gate = x.chunk(2, dim = -1)
         gate = self.norm(gate)
 
         weight, bias = self.proj.weight, self.proj.bias
         if self.causal:
+            weight, bias = weight[:n, :n], bias[:n]
             mask = torch.ones(weight.shape[:2], device = device).triu_(1).bool()
             weight = weight.masked_fill(mask[..., None], 0.)
 
