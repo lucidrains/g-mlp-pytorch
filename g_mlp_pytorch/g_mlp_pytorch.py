@@ -34,6 +34,16 @@ class Residual(nn.Module):
     def forward(self, x):
         return self.fn(x) + x
 
+class PreNorm(nn.Module):
+    def __init__(self, dim, fn):
+        super().__init__()
+        self.fn = fn
+        self.norm = nn.LayerNorm(dim)
+
+    def forward(self, x, **kwargs):
+        x = self.norm(x)
+        return self.fn(x, **kwargs)
+
 class Attention(nn.Module):
     def __init__(self, dim_in, dim_out, dim_inner, causal = False):
         super().__init__()
@@ -86,6 +96,21 @@ class SpatialGatingUnit(nn.Module):
             gate += self.attn(x)
         return gate * res
 
+def gMLPBlock(
+    *,
+    dim,
+    dim_ff,
+    seq_len,
+    attn_dim = None,
+    causal = False
+):
+    return nn.Sequential(
+        nn.Linear(dim, dim_ff),
+        nn.GELU(),
+        SpatialGatingUnit(dim_ff, seq_len, attn_dim, causal),
+        nn.Linear(dim_ff // 2, dim)
+    )
+
 # main classes
 
 class gMLP(nn.Module):
@@ -108,13 +133,7 @@ class gMLP(nn.Module):
 
         self.to_embed = nn.Embedding(num_tokens, dim) if exists(num_tokens) else nn.Identity()
 
-        self.layers = nn.ModuleList([Residual(nn.Sequential(
-            nn.LayerNorm(dim),
-            nn.Linear(dim, dim_ff),
-            nn.GELU(),
-            SpatialGatingUnit(dim_ff, seq_len, attn_dim, causal),
-            nn.Linear(dim_ff // 2, dim)
-        )) for i in range(depth)])
+        self.layers = nn.ModuleList([Residual(PreNorm(dim, gMLPBlock(dim = dim, dim_ff = dim_ff, seq_len = seq_len, attn_dim = attn_dim, causal = causal))) for i in range(depth)])
 
         self.to_logits = nn.Sequential(
             nn.LayerNorm(dim),
@@ -153,13 +172,7 @@ class gMLPVision(nn.Module):
 
         self.prob_survival = prob_survival
 
-        self.layers = nn.ModuleList([Residual(nn.Sequential(
-            nn.LayerNorm(dim),
-            nn.Linear(dim, dim_ff),
-            nn.GELU(),
-            SpatialGatingUnit(dim_ff, num_patches, attn_dim),
-            nn.Linear(dim_ff // 2, dim)
-        )) for i in range(depth)])
+        self.layers = nn.ModuleList([Residual(PreNorm(dim, gMLPBlock(dim = dim, dim_ff = dim_ff, seq_len = num_patches, attn_dim = attn_dim))) for i in range(depth)])
 
         self.to_logits = nn.Sequential(
             nn.LayerNorm(dim),
