@@ -1,3 +1,4 @@
+from random import randrange
 import torch
 from torch import nn, einsum
 from einops.layers.torch import Rearrange, Reduce
@@ -91,11 +92,16 @@ class gMLP(nn.Module):
             nn.Linear(dim_ff, dim)
         )) for i in range(depth)])
 
+        self.to_logits = nn.Sequential(
+            nn.LayerNorm(dim),
+            nn.Linear(dim, num_tokens)
+        ) if exists(num_tokens) else nn.Identity()
+
     def forward(self, x):
         x = self.to_embed(x)
         layers = self.layers if not self.training else dropout_layers(self.layers, self.prob_survival)
         out = nn.Sequential(*layers)(x)
-        return out
+        return self.to_logits(out)
 
 class gMLPVision(nn.Module):
     def __init__(

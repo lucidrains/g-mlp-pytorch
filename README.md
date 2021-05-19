@@ -26,7 +26,7 @@ model = gMLP(
 )
 
 x = torch.randint(0, 20000, (1, 256))
-emb = model(x) # (1, 256, 512)
+logits = model(x) # (1, 256, 20000)
 ```
 
 For image classification
@@ -44,7 +44,7 @@ model = gMLPVision(
 )
 
 img = torch.randn(1, 3, 256, 256)
-pred = model(img) # (1, 1000)
+logits = model(img) # (1, 1000)
 ```
 
 You can also add a tiny amount of attention (one-headed) to boost performance, as mentioned in the paper as `aMLP`, with the addition of one extra keyword `attn_dim`. This applies to both `gMLPVision` and `gMLP`
