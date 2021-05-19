@@ -1,5 +1,6 @@
 from random import randrange
 import torch
+import torch.nn.functional as F
 from torch import nn, einsum
 from einops.layers.torch import Rearrange, Reduce
 
@@ -34,9 +35,11 @@ class Residual(nn.Module):
         return self.fn(x) + x
 
 class Attention(nn.Module):
-    def __init__(self, dim_in, dim_out, dim_inner):
+    def __init__(self, dim_in, dim_out, dim_inner, causal = False):
         super().__init__()
         self.scale = dim_inner ** -0.5
+        self.causal = causal
+
         self.to_qkv = nn.Linear(dim_in, dim_inner * 3, bias = False)
         self.to_out = nn.Linear(dim_inner, dim_out)
 
@@ -48,18 +51,29 @@ class Attention(nn.Module):
         return self.to_out(out)
 
 class SpatialGatingUnit(nn.Module):
-    def __init__(self, dim, dim_seq, attn_dim = None):
+    def __init__(self, dim, dim_seq, attn_dim = None, causal = False):
         super().__init__()
+        self.causal = causal
+
         self.norm = nn.LayerNorm(dim)
         self.proj = nn.Conv1d(dim_seq, dim_seq, 1)
-        self.attn = Attention(dim * 2, dim, attn_dim) if exists(attn_dim) else None
+        self.attn = Attention(dim * 2, dim, attn_dim, causal) if exists(attn_dim) else None
         nn.init.zeros_(self.proj.weight)
         nn.init.constant_(self.proj.bias, 1.)
 
     def forward(self, x):
+        device = x.device
+
         res, gate = x.chunk(2, dim = -1)
         gate = self.norm(gate)
-        gate = self.proj(gate)
+
+        weight, bias = self.proj.weight, self.proj.bias
+        if self.causal:
+            mask = torch.ones(weight.shape[:2], device = device).triu_(1).bool()
+            weight = weight.masked_fill(mask[..., None], 0.)
+
+        gate = F.conv1d(gate, weight, bias)
+
         if exists(self.attn):
             gate += self.attn(x)
         return gate * res
@@ -76,19 +90,21 @@ class gMLP(nn.Module):
         seq_len,
         ff_mult = 4,
         attn_dim = None,
-        prob_survival = 1.
+        prob_survival = 1.,
+        causal = False
     ):
         super().__init__()
         dim_ff = dim * ff_mult
-        self.to_embed = nn.Embedding(num_tokens, dim) if exists(num_tokens) else nn.Identity()
-
+        self.seq_len = seq_len
         self.prob_survival = prob_survival
+
+        self.to_embed = nn.Embedding(num_tokens, dim) if exists(num_tokens) else nn.Identity()
 
         self.layers = nn.ModuleList([Residual(nn.Sequential(
             nn.LayerNorm(dim),
             nn.Linear(dim, dim_ff * 2),
             nn.GELU(),
-            SpatialGatingUnit(dim_ff, seq_len, attn_dim),
+            SpatialGatingUnit(dim_ff, seq_len, attn_dim, causal),
             nn.Linear(dim_ff, dim)
         )) for i in range(depth)])
 
