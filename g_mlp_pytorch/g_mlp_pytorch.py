@@ -59,11 +59,12 @@ class Attention(nn.Module):
 class SpatialGatingUnit(nn.Module):
     def __init__(self, dim, dim_seq, attn_dim = None, causal = False):
         super().__init__()
+        dim_out = dim // 2
         self.causal = causal
 
-        self.norm = nn.LayerNorm(dim)
+        self.norm = nn.LayerNorm(dim_out)
         self.proj = nn.Conv1d(dim_seq, dim_seq, 1)
-        self.attn = Attention(dim * 2, dim, attn_dim, causal) if exists(attn_dim) else None
+        self.attn = Attention(dim, dim_out, attn_dim, causal) if exists(attn_dim) else None
         nn.init.zeros_(self.proj.weight)
         nn.init.constant_(self.proj.bias, 1.)
 
@@ -108,10 +109,10 @@ class gMLP(nn.Module):
 
         self.layers = nn.ModuleList([Residual(nn.Sequential(
             nn.LayerNorm(dim),
-            nn.Linear(dim, dim_ff * 2),
+            nn.Linear(dim, dim_ff),
             nn.GELU(),
             SpatialGatingUnit(dim_ff, seq_len, attn_dim, causal),
-            nn.Linear(dim_ff, dim)
+            nn.Linear(dim_ff // 2, dim)
         )) for i in range(depth)])
 
         self.to_logits = nn.Sequential(
@@ -153,10 +154,10 @@ class gMLPVision(nn.Module):
 
         self.layers = nn.ModuleList([Residual(nn.Sequential(
             nn.LayerNorm(dim),
-            nn.Linear(dim, dim_ff * 2),
+            nn.Linear(dim, dim_ff),
             nn.GELU(),
             SpatialGatingUnit(dim_ff, num_patches, attn_dim),
-            nn.Linear(dim_ff, dim)
+            nn.Linear(dim_ff // 2, dim)
         )) for i in range(depth)])
 
         self.to_logits = nn.Sequential(
