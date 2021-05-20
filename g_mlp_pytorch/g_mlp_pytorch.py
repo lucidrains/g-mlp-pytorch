@@ -67,7 +67,7 @@ class Attention(nn.Module):
         return self.to_out(out)
 
 class SpatialGatingUnit(nn.Module):
-    def __init__(self, dim, dim_seq, attn_dim = None, causal = False):
+    def __init__(self, dim, dim_seq, attn_dim = None, causal = False, init_eps = 1e-3):
         super().__init__()
         dim_out = dim // 2
         self.causal = causal
@@ -75,7 +75,9 @@ class SpatialGatingUnit(nn.Module):
         self.norm = nn.LayerNorm(dim_out)
         self.proj = nn.Conv1d(dim_seq, dim_seq, 1)
         self.attn = Attention(dim, dim_out, attn_dim, causal) if exists(attn_dim) else None
-        nn.init.zeros_(self.proj.weight)
+
+        init_eps /= dim_seq
+        nn.init.uniform_(self.proj.weight, -init_eps, init_eps)
         nn.init.constant_(self.proj.bias, 1.)
 
     def forward(self, x):
