@@ -67,14 +67,13 @@ class Attention(nn.Module):
         return self.to_out(out)
 
 class SpatialGatingUnit(nn.Module):
-    def __init__(self, dim, dim_seq, attn_dim = None, causal = False, act = nn.Identity(), init_eps = 1e-3):
+    def __init__(self, dim, dim_seq, causal = False, act = nn.Identity(), init_eps = 1e-3):
         super().__init__()
         dim_out = dim // 2
         self.causal = causal
 
         self.norm = nn.LayerNorm(dim_out)
         self.proj = nn.Conv1d(dim_seq, dim_seq, 1)
-        self.attn = Attention(dim, dim_out, attn_dim, causal) if exists(attn_dim) else None
 
         self.act = act
 
@@ -82,7 +81,7 @@ class SpatialGatingUnit(nn.Module):
         nn.init.uniform_(self.proj.weight, -init_eps, init_eps)
         nn.init.constant_(self.proj.bias, 1.)
 
-    def forward(self, x):
+    def forward(self, x, gate_res = None):
         device, n = x.device, x.shape[1]
 
         res, gate = x.chunk(2, dim = -1)
@@ -96,26 +95,40 @@ class SpatialGatingUnit(nn.Module):
 
         gate = F.conv1d(gate, weight, bias)
 
-        if exists(self.attn):
-            gate += self.attn(x)
+        if exists(gate_res):
+            gate = gate + gate_res
 
         return self.act(gate) * res
 
-def gMLPBlock(
-    *,
-    dim,
-    dim_ff,
-    seq_len,
-    attn_dim = None,
-    causal = False,
-    act = nn.Identity()
-):
-    return nn.Sequential(
-        nn.Linear(dim, dim_ff),
-        nn.GELU(),
-        SpatialGatingUnit(dim_ff, seq_len, attn_dim, causal, act),
-        nn.Linear(dim_ff // 2, dim)
-    )
+class gMLPBlock(nn.Module):
+    def __init__(
+        self,
+        *,
+        dim,
+        dim_ff,
+        seq_len,
+        attn_dim = None,
+        causal = False,
+        act = nn.Identity()
+    ):
+        super().__init__()
+        self.proj_in = nn.Sequential(
+            nn.Linear(dim, dim_ff),
+            nn.GELU()
+        )
+
+        self.attn = Attention(dim, dim_ff // 2, attn_dim, causal) if exists(attn_dim) else None
+
+        self.sgu = SpatialGatingUnit(dim_ff, seq_len, causal, act)
+        self.proj_out = nn.Linear(dim_ff // 2, dim)
+
+    def forward(self, x):
+        gate_res = self.attn(x) if exists(self.attn) else None
+
+        x = self.proj_in(x)
+        x = self.sgu(x, gate_res = gate_res)
+        x = self.proj_out(x)
+        return x
 
 # main classes
 
