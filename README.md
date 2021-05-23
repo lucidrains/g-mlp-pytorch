@@ -22,7 +22,8 @@ model = gMLP(
     num_tokens = 20000,
     dim = 512,
     depth = 6,
-    seq_len = 256
+    seq_len = 256,
+    act = nn.Tanh()        # activation for spatial gate (defaults to identity)
 )
 
 x = torch.randint(0, 20000, (1, 256))

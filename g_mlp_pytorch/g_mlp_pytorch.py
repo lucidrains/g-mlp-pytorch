@@ -67,7 +67,7 @@ class Attention(nn.Module):
         return self.to_out(out)
 
 class SpatialGatingUnit(nn.Module):
-    def __init__(self, dim, dim_seq, attn_dim = None, causal = False, init_eps = 1e-3):
+    def __init__(self, dim, dim_seq, attn_dim = None, causal = False, act = nn.Identity(), init_eps = 1e-3):
         super().__init__()
         dim_out = dim // 2
         self.causal = causal
@@ -75,6 +75,8 @@ class SpatialGatingUnit(nn.Module):
         self.norm = nn.LayerNorm(dim_out)
         self.proj = nn.Conv1d(dim_seq, dim_seq, 1)
         self.attn = Attention(dim, dim_out, attn_dim, causal) if exists(attn_dim) else None
+
+        self.act = act
 
         init_eps /= dim_seq
         nn.init.uniform_(self.proj.weight, -init_eps, init_eps)
@@ -96,7 +98,8 @@ class SpatialGatingUnit(nn.Module):
 
         if exists(self.attn):
             gate += self.attn(x)
-        return gate * res
+
+        return self.act(gate) * res
 
 def gMLPBlock(
     *,
@@ -104,12 +107,13 @@ def gMLPBlock(
     dim_ff,
     seq_len,
     attn_dim = None,
-    causal = False
+    causal = False,
+    act = nn.Identity()
 ):
     return nn.Sequential(
         nn.Linear(dim, dim_ff),
         nn.GELU(),
-        SpatialGatingUnit(dim_ff, seq_len, attn_dim, causal),
+        SpatialGatingUnit(dim_ff, seq_len, attn_dim, causal, act),
         nn.Linear(dim_ff // 2, dim)
     )
 
@@ -126,7 +130,8 @@ class gMLP(nn.Module):
         ff_mult = 4,
         attn_dim = None,
         prob_survival = 1.,
-        causal = False
+        causal = False,
+        act = nn.Identity()
     ):
         super().__init__()
         dim_ff = dim * ff_mult
@@ -135,7 +140,7 @@ class gMLP(nn.Module):
 
         self.to_embed = nn.Embedding(num_tokens, dim) if exists(num_tokens) else nn.Identity()
 
-        self.layers = nn.ModuleList([Residual(PreNorm(dim, gMLPBlock(dim = dim, dim_ff = dim_ff, seq_len = seq_len, attn_dim = attn_dim, causal = causal))) for i in range(depth)])
+        self.layers = nn.ModuleList([Residual(PreNorm(dim, gMLPBlock(dim = dim, dim_ff = dim_ff, seq_len = seq_len, attn_dim = attn_dim, causal = causal, act = act))) for i in range(depth)])
 
         self.to_logits = nn.Sequential(
             nn.LayerNorm(dim),
