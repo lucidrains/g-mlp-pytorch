@@ -9,6 +9,9 @@ from einops.layers.torch import Rearrange, Reduce
 def exists(val):
     return val is not None
 
+def pair(val):
+    return (val, val) if not isinstance(val, tuple) else val
+
 def dropout_layers(layers, prob_survival):
     if prob_survival == 1:
         return layers
@@ -181,9 +184,11 @@ class gMLPVision(nn.Module):
         prob_survival = 1.
     ):
         super().__init__()
-        assert (image_size % patch_size) == 0, 'image size must be divisible by the patch size'
+        image_height, image_width = pair(image_size)
+        assert (image_height % patch_size) == 0 and (image_width % patch_size) == 0, 'image height and width must be divisible by patch size'
+        num_patches = (image_height // patch_size) * (image_width // patch_size)
+
         dim_ff = dim * ff_mult
-        num_patches = (image_size // patch_size) ** 2
 
         self.to_patch_embed = nn.Sequential(
             Rearrange('b c (h p1) (w p2) -> b (h w) (c p1 p2)', p1 = patch_size, p2 = patch_size),
