@@ -67,7 +67,7 @@ img = torch.randn(1, 3, 256, 256)
 pred = model(img) # (1, 1000)
 ```
 
-Non-square images
+Non-square images and patch sizes
 
 ```python
 import torch
@@ -75,7 +75,7 @@ from g_mlp_pytorch import gMLPVision
 
 model = gMLPVision(
     image_size = (256, 128),
-    patch_size = 16,
+    patch_size = (16, 8),
     num_classes = 1000,
     dim = 512,
     depth = 6,

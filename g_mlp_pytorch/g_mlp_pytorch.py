@@ -185,14 +185,15 @@ class gMLPVision(nn.Module):
     ):
         super().__init__()
         image_height, image_width = pair(image_size)
-        assert (image_height % patch_size) == 0 and (image_width % patch_size) == 0, 'image height and width must be divisible by patch size'
-        num_patches = (image_height // patch_size) * (image_width // patch_size)
+        patch_height, patch_width = pair(patch_size)
+        assert (image_height % patch_height) == 0 and (image_width % patch_width) == 0, 'image height and width must be divisible by patch size'
+        num_patches = (image_height // patch_height) * (image_width // patch_width)
 
         dim_ff = dim * ff_mult
 
         self.to_patch_embed = nn.Sequential(
-            Rearrange('b c (h p1) (w p2) -> b (h w) (c p1 p2)', p1 = patch_size, p2 = patch_size),
-            nn.Linear(channels * patch_size ** 2, dim)
+            Rearrange('b c (h p1) (w p2) -> b (h w) (c p1 p2)', p1 = patch_height, p2 = patch_width),
+            nn.Linear(channels * patch_height * patch_width, dim)
         )
 
         self.prob_survival = prob_survival
