@@ -89,7 +89,7 @@ pred = model(img) # (1, 1000)
 
 ## Experimental
 
-A independent researcher proposes using circulant matrices in gMLPs in <a href="https://zhuanlan.zhihu.com/p/395005917">a blogpost on Zhihu</a>. This allows you to scale gMLPs with increasing sequence length with linear parameter costs (as opposed to quadratic). My experiments show little performance degradation.
+A independent researcher proposes using circulant matrices in gMLPs in <a href="https://zhuanlan.zhihu.com/p/395005917">a blogpost on Zhihu</a>. This allows you to scale gMLPs with increasing sequence length with linear parameter costs (as opposed to quadratic). My experiments show improved rate of convergence.
 
 You can use it by setting one extra flag to `True`
 
@@ -104,6 +104,27 @@ model = gMLP(
     depth = 6,
     seq_len = 256,
     causal = True,
+    use_circulant_matrix = True  # set to True
+)
+
+x = torch.randint(0, 20000, (1, 256))
+logits = model(x) # (1, 256, 20000)
+```
+
+Finally, you can also use multi-headedness, as proposed by Peng Bo in the blogpost. To do so, just set `heads` to be greater than `1`
+
+```python
+import torch
+from torch import nn
+from g_mlp_pytorch import gMLP
+
+model = gMLP(
+    num_tokens = 20000,
+    dim = 512,
+    depth = 6,
+    seq_len = 256,
+    causal = True,
+    heads = 4,                   # 4 heads
     use_circulant_matrix = True  # set to True
 )
 
