@@ -2,6 +2,8 @@ from random import randrange
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum
+
+from einops import rearrange, repeat
 from einops.layers.torch import Rearrange, Reduce
 
 # functions
@@ -70,7 +72,7 @@ class Attention(nn.Module):
         return self.to_out(out)
 
 class SpatialGatingUnit(nn.Module):
-    def __init__(self, dim, dim_seq, causal = False, act = nn.Identity(), init_eps = 1e-3):
+    def __init__(self, dim, dim_seq, causal = False, act = nn.Identity(), init_eps = 1e-3, use_circulant_matrix = False):
         super().__init__()
         dim_out = dim // 2
         self.causal = causal
@@ -80,9 +82,17 @@ class SpatialGatingUnit(nn.Module):
 
         self.act = act
 
+        # parameters
+
+        self.use_circulant_matrix = use_circulant_matrix
+        shape = (dim_seq,) if use_circulant_matrix else (dim_seq, dim_seq)
+        weight = torch.zeros(shape)
+
+        self.weight = nn.Parameter(weight)
         init_eps /= dim_seq
-        nn.init.uniform_(self.proj.weight, -init_eps, init_eps)
-        nn.init.constant_(self.proj.bias, 1.)
+        nn.init.uniform_(self.weight, -init_eps, init_eps)
+
+        self.bias = nn.Parameter(torch.ones(dim_seq))
 
     def forward(self, x, gate_res = None):
         device, n = x.device, x.shape[1]
@@ -90,13 +100,22 @@ class SpatialGatingUnit(nn.Module):
         res, gate = x.chunk(2, dim = -1)
         gate = self.norm(gate)
 
-        weight, bias = self.proj.weight, self.proj.bias
+        weight, bias = self.weight, self.bias
+
+        if self.use_circulant_matrix:
+            dim_seq = weight.shape[-1]
+            weight = F.pad(weight, (0, dim_seq), value = 0)
+            weight = repeat(weight, '... n -> ... (r n)', r = dim_seq)
+            weight = weight[:-dim_seq].reshape(dim_seq, 2 * dim_seq - 1)
+            weight = weight[:, (dim_seq - 1):]
+
         if self.causal:
             weight, bias = weight[:n, :n], bias[:n]
             mask = torch.ones(weight.shape[:2], device = device).triu_(1).bool()
-            weight = weight.masked_fill(mask[..., None], 0.)
+            weight = weight.masked_fill(mask, 0.)
 
-        gate = F.conv1d(gate, weight, bias)
+        gate = einsum('b n d, m n -> b m d', gate, weight)
+        gate = gate + rearrange(bias, 'n -> () n ()')
 
         if exists(gate_res):
             gate = gate + gate_res
@@ -112,7 +131,8 @@ class gMLPBlock(nn.Module):
         seq_len,
         attn_dim = None,
         causal = False,
-        act = nn.Identity()
+        act = nn.Identity(),
+        use_circulant_matrix = False
     ):
         super().__init__()
         self.proj_in = nn.Sequential(
@@ -122,7 +142,7 @@ class gMLPBlock(nn.Module):
 
         self.attn = Attention(dim, dim_ff // 2, attn_dim, causal) if exists(attn_dim) else None
 
-        self.sgu = SpatialGatingUnit(dim_ff, seq_len, causal, act)
+        self.sgu = SpatialGatingUnit(dim_ff, seq_len, causal, act, use_circulant_matrix = use_circulant_matrix)
         self.proj_out = nn.Linear(dim_ff // 2, dim)
 
     def forward(self, x):
@@ -147,7 +167,8 @@ class gMLP(nn.Module):
         attn_dim = None,
         prob_survival = 1.,
         causal = False,
-        act = nn.Identity()
+        act = nn.Identity(),
+        use_circulant_matrix = False
     ):
         super().__init__()
         dim_ff = dim * ff_mult
@@ -156,7 +177,7 @@ class gMLP(nn.Module):
 
         self.to_embed = nn.Embedding(num_tokens, dim) if exists(num_tokens) else nn.Identity()
 
-        self.layers = nn.ModuleList([Residual(PreNorm(dim, gMLPBlock(dim = dim, dim_ff = dim_ff, seq_len = seq_len, attn_dim = attn_dim, causal = causal, act = act))) for i in range(depth)])
+        self.layers = nn.ModuleList([Residual(PreNorm(dim, gMLPBlock(dim = dim, dim_ff = dim_ff, seq_len = seq_len, attn_dim = attn_dim, causal = causal, act = act, use_circulant_matrix = use_circulant_matrix))) for i in range(depth)])
 
         self.to_logits = nn.Sequential(
             nn.LayerNorm(dim),

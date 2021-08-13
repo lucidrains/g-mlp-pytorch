@@ -16,6 +16,7 @@ For masked language modelling
 
 ```python
 import torch
+from torch import nn
 from g_mlp_pytorch import gMLP
 
 model = gMLP(
@@ -86,6 +87,30 @@ img = torch.randn(1, 3, 256, 128)
 pred = model(img) # (1, 1000)
 ```
 
+## Experimental
+
+A independent researcher proposes using circulant matrices in gMLPs in <a href="https://zhuanlan.zhihu.com/p/395005917">a blogpost on Zhihu</a>. This allows you to scale gMLPs with increasing sequence length with linear parameter costs (as opposed to quadratic). My experiments show little performance degradation.
+
+You can use it by setting one extra flag to `True`
+
+```python
+import torch
+from torch import nn
+from g_mlp_pytorch import gMLP
+
+model = gMLP(
+    num_tokens = 20000,
+    dim = 512,
+    depth = 6,
+    seq_len = 256,
+    causal = True,
+    use_circulant_matrix = True  # set to True
+)
+
+x = torch.randint(0, 20000, (1, 256))
+logits = model(x) # (1, 256, 20000)
+```
+
 ## Citations
 
 ```bibtex
@@ -96,5 +121,18 @@ pred = model(img) # (1, 1000)
     eprint  = {2105.08050},
     archivePrefix = {arXiv},
     primaryClass = {cs.LG}
+}
+```
+
+```bibtex
+@software{peng_bo_2021_5196578,
+    author       = {PENG Bo},
+    title        = {BlinkDL/RWKV-LM: 0.01},
+    month        = aug,
+    year         = 2021,
+    publisher    = {Zenodo},
+    version      = {0.01},
+    doi          = {10.5281/zenodo.5196578},
+    url          = {https://doi.org/10.5281/zenodo.5196578%7D
 }
 ```
