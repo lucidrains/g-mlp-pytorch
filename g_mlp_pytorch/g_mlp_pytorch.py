@@ -84,6 +84,10 @@ class SpatialGatingUnit(nn.Module):
 
         # parameters
 
+        if use_circulant_matrix:
+            self.circulant_pos_x = nn.Parameter(torch.ones((dim_seq,)))
+            self.circulant_pos_y = nn.Parameter(torch.ones((dim_seq,)))
+
         self.use_circulant_matrix = use_circulant_matrix
         shape = (dim_seq,) if use_circulant_matrix else (dim_seq, dim_seq)
         weight = torch.zeros(shape)
@@ -108,6 +112,9 @@ class SpatialGatingUnit(nn.Module):
             weight = repeat(weight, '... n -> ... (r n)', r = dim_seq)
             weight = weight[:-dim_seq].reshape(dim_seq, 2 * dim_seq - 1)
             weight = weight[:, (dim_seq - 1):]
+
+            pos_x, pos_y = self.circulant_pos_x, self.circulant_pos_y
+            weight = weight * rearrange(pos_x, 'i -> i ()') * rearrange(pos_y, 'j -> () j')
 
         if self.causal:
             weight, bias = weight[:n, :n], bias[:n]

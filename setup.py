@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'g-mlp-pytorch',
   packages = find_packages(),
-  version = '0.1.0',
+  version = '0.1.1',
   license='MIT',
   description = 'gMLP - Pytorch',
   author = 'Phil Wang',
