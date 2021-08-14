@@ -29,6 +29,11 @@ def dropout_layers(layers, prob_survival):
     layers = [layer for (layer, drop) in zip(layers, to_drop) if not drop]
     return layers
 
+def shift(t, amount, mask = None):
+    if amount == 0:
+        return t
+    return F.pad(t, (0, 0, amount, -amount), value = 0.)
+
 # helper classes
 
 class Residual(nn.Module):
@@ -38,6 +43,25 @@ class Residual(nn.Module):
 
     def forward(self, x):
         return self.fn(x) + x
+
+class PreShiftTokens(nn.Module):
+    def __init__(self, shifts, fn):
+        super().__init__()
+        self.fn = fn
+        self.shifts = tuple(shifts)
+
+    def forward(self, x, **kwargs):
+        if self.shifts == (0,):
+            return self.fn(x, **kwargs)
+
+        shifts = self.shifts
+        segments = len(shifts)
+        feats_per_shift = x.shape[-1] // segments
+        splitted = x.split(feats_per_shift, dim = -1)
+        segments_to_shift, rest = splitted[:segments], splitted[segments:]
+        segments_to_shift = list(map(lambda args: shift(*args), zip(segments_to_shift, shifts)))
+        x = torch.cat((*segments_to_shift, *rest), dim = -1)
+        return self.fn(x, **kwargs)
 
 class PreNorm(nn.Module):
     def __init__(self, dim, fn):
@@ -172,7 +196,6 @@ class gMLPBlock(nn.Module):
 
     def forward(self, x):
         gate_res = self.attn(x) if exists(self.attn) else None
-
         x = self.proj_in(x)
         x = self.sgu(x, gate_res = gate_res)
         x = self.proj_out(x)
@@ -193,8 +216,9 @@ class gMLP(nn.Module):
         attn_dim = None,
         prob_survival = 1.,
         causal = False,
-        act = nn.Identity(),
-        circulant_matrix = False
+        circulant_matrix = False,
+        shift_tokens = 0,
+        act = nn.Identity()
     ):
         super().__init__()
         assert (dim % heads) == 0, 'dimension must be divisible by number of heads'
@@ -205,7 +229,8 @@ class gMLP(nn.Module):
 
         self.to_embed = nn.Embedding(num_tokens, dim) if exists(num_tokens) else nn.Identity()
 
-        self.layers = nn.ModuleList([Residual(PreNorm(dim, gMLPBlock(dim = dim, heads = heads, dim_ff = dim_ff, seq_len = seq_len, attn_dim = attn_dim, causal = causal, act = act, circulant_matrix = circulant_matrix))) for i in range(depth)])
+        token_shifts = tuple(range(0 if causal else -shift_tokens, shift_tokens + 1))
+        self.layers = nn.ModuleList([Residual(PreNorm(dim, PreShiftTokens(token_shifts, gMLPBlock(dim = dim, heads = heads, dim_ff = dim_ff, seq_len = seq_len, attn_dim = attn_dim, causal = causal, act = act, circulant_matrix = circulant_matrix)))) for i in range(depth)])
 
         self.to_logits = nn.Sequential(
             nn.LayerNorm(dim),
