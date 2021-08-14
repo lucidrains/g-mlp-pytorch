@@ -80,7 +80,7 @@ class SpatialGatingUnit(nn.Module):
         act = nn.Identity(),
         heads = 1,
         init_eps = 1e-3,
-        use_circulant_matrix = False
+        circulant_matrix = False
     ):
         super().__init__()
         dim_out = dim // 2
@@ -92,12 +92,12 @@ class SpatialGatingUnit(nn.Module):
 
         # parameters
 
-        if use_circulant_matrix:
+        if circulant_matrix:
             self.circulant_pos_x = nn.Parameter(torch.ones(heads, dim_seq))
             self.circulant_pos_y = nn.Parameter(torch.ones(heads, dim_seq))
 
-        self.use_circulant_matrix = use_circulant_matrix
-        shape = (heads, dim_seq,) if use_circulant_matrix else (heads, dim_seq, dim_seq)
+        self.circulant_matrix = circulant_matrix
+        shape = (heads, dim_seq,) if circulant_matrix else (heads, dim_seq, dim_seq)
         weight = torch.zeros(shape)
 
         self.weight = nn.Parameter(weight)
@@ -114,7 +114,7 @@ class SpatialGatingUnit(nn.Module):
 
         weight, bias = self.weight, self.bias
 
-        if self.use_circulant_matrix:
+        if self.circulant_matrix:
             # build the circulant matrix
 
             dim_seq = weight.shape[-1]
@@ -157,7 +157,7 @@ class gMLPBlock(nn.Module):
         attn_dim = None,
         causal = False,
         act = nn.Identity(),
-        use_circulant_matrix = False
+        circulant_matrix = False
     ):
         super().__init__()
         self.proj_in = nn.Sequential(
@@ -167,7 +167,7 @@ class gMLPBlock(nn.Module):
 
         self.attn = Attention(dim, dim_ff // 2, attn_dim, causal) if exists(attn_dim) else None
 
-        self.sgu = SpatialGatingUnit(dim_ff, seq_len, causal, act, heads, use_circulant_matrix = use_circulant_matrix)
+        self.sgu = SpatialGatingUnit(dim_ff, seq_len, causal, act, heads, circulant_matrix = circulant_matrix)
         self.proj_out = nn.Linear(dim_ff // 2, dim)
 
     def forward(self, x):
@@ -194,7 +194,7 @@ class gMLP(nn.Module):
         prob_survival = 1.,
         causal = False,
         act = nn.Identity(),
-        use_circulant_matrix = False
+        circulant_matrix = False
     ):
         super().__init__()
         assert (dim % heads) == 0, 'dimension must be divisible by number of heads'
@@ -205,7 +205,7 @@ class gMLP(nn.Module):
 
         self.to_embed = nn.Embedding(num_tokens, dim) if exists(num_tokens) else nn.Identity()
 
-        self.layers = nn.ModuleList([Residual(PreNorm(dim, gMLPBlock(dim = dim, heads = heads, dim_ff = dim_ff, seq_len = seq_len, attn_dim = attn_dim, causal = causal, act = act, use_circulant_matrix = use_circulant_matrix))) for i in range(depth)])
+        self.layers = nn.ModuleList([Residual(PreNorm(dim, gMLPBlock(dim = dim, heads = heads, dim_ff = dim_ff, seq_len = seq_len, attn_dim = attn_dim, causal = causal, act = act, circulant_matrix = circulant_matrix))) for i in range(depth)])
 
         self.to_logits = nn.Sequential(
             nn.LayerNorm(dim),
